@@ -143,20 +143,6 @@ INSERT INTO appointments_table (
     )
 VALUES (1, 6, '2025-01-26', '10:00'),
     (2, 7, '2025-01-26', '11:00');
--- Query appointments for a specific doctor
-SELECT a.appointment_id,
-    u.name AS patient_name,
-    a.appointment_date,
-    a.appointment_time,
-    a.status
-FROM appointments_table a
-    JOIN users_table u ON a.patient_id = u.user_id
-WHERE a.doctor_id = 1;
--- Query schedules for a specific doctor on a specific date
-SELECT *
-FROM schedules_table
-WHERE doctor_id = 1
-    AND available_date = '2025-01-25';
 -- Show the schema of users_table
 SELECT column_name,
     data_type,
@@ -189,3 +175,73 @@ SELECT column_name,
     column_default
 FROM information_schema.columns
 WHERE table_name = 'appointments_table';
+-- Query appointments for a specific doctor
+SELECT a.appointment_id,
+    u.name AS patient_name,
+    a.appointment_date,
+    a.appointment_time,
+    a.status
+FROM appointments_table a
+    JOIN users_table u ON a.patient_id = u.user_id
+WHERE a.doctor_id = 1;
+-- Query schedules for a specific doctor on a specific date
+SELECT *
+FROM schedules_table
+WHERE doctor_id = 1
+    AND available_date = '2025-01-25';
+-- List all upcoming appointments for a specific patient
+SELECT a.appointment_id,
+    d.specialization AS doctor_specialization,
+    d.contact_number AS doctor_contact,
+    a.appointment_date,
+    a.appointment_time,
+    a.status
+FROM appointments_table a
+    JOIN doctors_table d ON a.doctor_id = d.doctor_id
+WHERE a.patient_id = 6
+    AND a.appointment_date >= CURRENT_DATE
+ORDER BY a.appointment_date,
+    a.appointment_time;
+-- Count the number of appointments by doctor specialization
+SELECT d.specialization,
+    COUNT(a.appointment_id) AS total_appointments
+FROM appointments_table a
+    JOIN doctors_table d ON a.doctor_id = d.doctor_id
+GROUP BY d.specialization
+ORDER BY total_appointments DESC;
+-- Find the most active doctors (by number of appointments)
+SELECT d.doctor_id,
+    u.name AS doctor_name,
+    COUNT(a.appointment_id) AS total_appointments
+FROM appointments_table a
+    JOIN doctors_table d ON a.doctor_id = d.doctor_id
+    JOIN users_table u ON d.user_id = u.user_id
+GROUP BY d.doctor_id,
+    u.name
+ORDER BY total_appointments DESC
+LIMIT 5;
+-- Retrieve the contact details of doctors with available slots
+SELECT u.name AS doctor_name,
+    d.specialization,
+    d.contact_number,
+    COUNT(s.schedule_id) AS available_slots
+FROM doctors_table d
+    JOIN users_table u ON d.user_id = u.user_id
+    JOIN schedules_table s ON d.doctor_id = s.doctor_id
+WHERE NOT EXISTS (
+        SELECT 1
+        FROM appointments_table a
+        WHERE a.doctor_id = d.doctor_id
+            AND a.appointment_date = s.available_date
+            AND a.appointment_time BETWEEN s.start_time AND s.end_time
+    )
+GROUP BY u.name,
+    d.specialization,
+    d.contact_number
+ORDER BY available_slots DESC;
+-- Get a summary of appointment statuses
+SELECT status,
+    COUNT(appointment_id) AS total_appointments
+FROM appointments_table
+GROUP BY status
+ORDER BY total_appointments DESC;
