@@ -11,7 +11,6 @@ const crypto = require("crypto");
 const app = express();
 const PORT = 5000;
 
-
 // otp area
 // Configure email transporter (use your email service)
 const transporter = nodemailer.createTransport({
@@ -35,10 +34,11 @@ const SECRET_KEY = process.env.SECRET_KEY || "secret123";
 // Middleware
 app.use(
     cors({
-        origin: "http://localhost:3000", // Allow frontend to access the backend
+        origin: ["http://localhost:3000", "http://localhost:5173"],
         credentials: true,
     })
 );
+
 app.use(helmet());
 app.use(express.json());
 
@@ -63,7 +63,6 @@ app.get("/health", async (req, res) => {
         });
     }
 });
-
 
 // Send OTP Endpoint
 app.post('/api/send-otp', async (req, res) => {
@@ -114,8 +113,6 @@ app.post('/api/reset-password', async (req, res) => {
     }
 });
 
-
-
 // Add this after the existing /api/register endpoint
 app.post("/api/register/doctor", async (req, res) => {
     const { userId, specialization, contactNumber, clinicAddress } = req.body;
@@ -130,6 +127,7 @@ app.post("/api/register/doctor", async (req, res) => {
         res.status(500).json({ error: "Error registering doctor" });
     }
 });
+
 // Register API
 app.post("/api/register", async (req, res) => {
     const { name, email, phone_number, password, role } = req.body;
@@ -153,9 +151,11 @@ app.post("/api/register", async (req, res) => {
         res.status(500).json({ error: "Error registering user" });
     }
 });
+
+// ENHANCED LOGIN ROUTE WITH DETAILED LOGGING
 app.post("/api/login", async (req, res) => {
     const { email, password } = req.body;
-    console.log("Login attempt for:", email); // Debug log
+    console.log("Login attempt for:", email);
 
     try {
         const result = await pool.query("SELECT * FROM users_table WHERE email = $1", [email]);
@@ -166,30 +166,43 @@ app.post("/api/login", async (req, res) => {
         }
 
         const user = result.rows[0];
-        console.log("User found. Comparing password...");
+
+        // ENHANCED LOGGING
+        console.log("Full User Object:", JSON.stringify(user, null, 2));
+        console.log("User ID:", user.user_id);
+        console.log("User Name:", user.name);
+        console.log("User Email:", user.email);
+        console.log("User Role:", user.role);
 
         const passwordMatch = await bcrypt.compare(password, user.password_hash);
-        console.log("Password match result:", passwordMatch);
+        console.log("Password Match Result:", passwordMatch);
 
         if (passwordMatch) {
             const token = jwt.sign(
                 {
                     userId: user.user_id,
                     role: user.role,
-                    email: user.email
+                    email: user.email,
+                    name: user.name  // Ensure name is included
                 },
                 SECRET_KEY,
                 { expiresIn: "1h" }
             );
 
-            console.log("Generated token for user:", user.email);
+            console.log("Generated Token Payload:", {
+                userId: user.user_id,
+                role: user.role,
+                email: user.email,
+                name: user.name
+            });
+
             res.status(200).json({ token });
         } else {
             console.log("Password mismatch for user:", user.email);
             res.status(401).json({ error: "Invalid email or password" });
         }
     } catch (err) {
-        console.error("Login error:", err.stack); // Detailed error log
+        console.error("Login error:", err.stack);
         res.status(500).json({ error: "Error logging in" });
     }
 });
