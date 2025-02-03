@@ -152,6 +152,37 @@ app.post("/api/send-otp", async (req, res) => {
     }
 });
 
+// Verify OTP route
+app.post("/api/verify-otp", (req, res) => {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+        return res.status(400).json({ error: "Email and OTP are required" });
+    }
+
+    try {
+        const storedOtp = otpStore.get(email);
+
+        if (!storedOtp) {
+            return res.status(400).json({ error: "OTP not generated for this email" });
+        }
+
+        if (storedOtp.otp !== parseInt(otp)) {
+            return res.status(400).json({ error: "Invalid OTP" });
+        }
+
+        if (Date.now() > storedOtp.expires) {
+            otpStore.delete(email);
+            return res.status(400).json({ error: "OTP expired" });
+        }
+
+        res.status(200).json({ message: "OTP verified successfully" });
+    } catch (err) {
+        console.error("OTP verification error:", err.stack);
+        res.status(500).json({ error: "Error verifying OTP" });
+    }
+});
+
 // Reset Password
 app.post("/api/reset-password", async (req, res) => {
     const { email, otp, newPassword } = req.body;
