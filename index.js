@@ -466,18 +466,12 @@ app.delete("/api/appointments/:id", authenticateToken, async (req, res) => {
   }
 });
 
-
 app.put("/api/appointments/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { newDate, newTime, doctorId } = req.body;
+    const { newDate, newTime } = req.body; // newTime must be in "HH:MM:SS" (24-hour) format
 
-    // Ensure doctorId is provided.
-    if (!doctorId) {
-      return res.status(400).json({ error: "Doctor ID is required" });
-    }
-
-    // Fetch the old appointment.
+    // Retrieve the old appointment.
     const oldAppointmentResult = await pool.query(
       "SELECT * FROM appointments_table WHERE appointment_id = $1",
       [id]
@@ -486,6 +480,10 @@ app.put("/api/appointments/:id", authenticateToken, async (req, res) => {
       return res.status(404).json({ error: "Appointment not found" });
     }
     const oldAppointment = oldAppointmentResult.rows[0];
+    const doctorId = oldAppointment.doctor_id;
+    if (!doctorId) {
+      return res.status(400).json({ error: "Doctor ID not found in appointment" });
+    }
 
     // Free up the old slot.
     await pool.query(
@@ -494,19 +492,16 @@ app.put("/api/appointments/:id", authenticateToken, async (req, res) => {
        WHERE doctor_id = $1
          AND available_date = $2
          AND start_time = $3`,
-      [oldAppointment.doctor_id, oldAppointment.appointment_date, oldAppointment.appointment_time]
+      [doctorId, oldAppointment.appointment_date, oldAppointment.appointment_time]
     );
 
-    // Convert newTime from 12h to 24h.
-    const convertedTime = convertTime12to24(newTime);
-
-    // Check if the new slot exists and is available.
+    // Check if the new slot is available.
     const newSlotResult = await pool.query(
       `SELECT * FROM schedules_table
        WHERE doctor_id = $1
          AND available_date = $2
          AND start_time = $3`,
-      [doctorId, newDate, convertedTime]
+      [doctorId, newDate, newTime]
     );
     if (newSlotResult.rowCount === 0 || newSlotResult.rows[0].slot_status !== "available") {
       return res.status(400).json({ error: "Selected slot not available" });
@@ -518,7 +513,7 @@ app.put("/api/appointments/:id", authenticateToken, async (req, res) => {
        SET appointment_date = $1, appointment_time = $2
        WHERE appointment_id = $3
        RETURNING *`,
-      [newDate, convertedTime, id]
+      [newDate, newTime, id]
     );
 
     // Mark the new slot as booked.
@@ -535,6 +530,34 @@ app.put("/api/appointments/:id", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Failed to reschedule appointment" });
   }
 });
+
+
+
+
+app.get("/api/available-slotd", async (req, res) => {
+  try {
+    const { doctor_id, date } = req.query;
+
+    if (!doctor_id || !date) {
+      return res.status(400).json({ error: "Missing doctor_id or date" });
+    }
+
+    const result = await pool.query(
+      `SELECT schedule_id, start_time, slot_status 
+       FROM schedules_table 
+       WHERE doctor_id = $1 AND available_date = $2`,
+      [doctor_id, date]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching available slots:", error.message);
+    res.status(500).json({ error: "Failed to fetch slots" });
+  }
+});
+
+
+
 
 // Helper function to convert 12-hour time (e.g., "09:00 AM") to 24-hour time (e.g., "09:00:00")
 function convertTime12to24(time12h) {
@@ -585,6 +608,7 @@ app.get("/api/doctor/appointments", authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT a.appointment_id, 
+              a.doctor_id,
               u.name AS patient_name,
               u.phone_number AS patient_phone,
               a.appointment_date,
@@ -606,58 +630,60 @@ app.get("/api/doctor/appointments", authenticateToken, async (req, res) => {
   }
 });
 
-
-
-// Post a new review
 app.post("/api/reviews", authenticateToken, async (req, res) => {
   try {
-    const { userId: doctorUserId, rating, comment } = req.body;
-    const patientId = req.user.userId; // from JWT
+    const { doctorId, rating, comment } = req.body; // doctorId is actually user_id, not doctor_id
+    const patientId = req.user.userId; // JWT-authenticated user
 
-    if (!doctorId || !rating) {
-      return res.status(400).json({ error: "doctorId and rating are required." });
+    // Validate input
+    if (!doctorId || rating === undefined) {
+      return res.status(400).json({ error: "doctorId (user_id) and rating are required." });
     }
 
-    // Fetch the doctor_id from doctors_table using the user_id
+    if (typeof rating !== "number" || rating < 0 || rating > 5) {
+      return res.status(400).json({ error: "Rating must be a number between 0 and 5." });
+    }
+
+    // 🔹 Convert user_id (doctorId) to doctor_id
     const doctorResult = await pool.query(
       "SELECT doctor_id FROM doctors_table WHERE user_id = $1",
-      [doctorUserId]
+      [doctorId]  // Here, doctorId is actually user_id
     );
+
     if (doctorResult.rows.length === 0) {
       return res.status(404).json({ error: "Doctor not found" });
     }
-    const doctorId = doctorResult.rows[0].doctor_id;
 
-    // 1. Insert new review
+    const actualDoctorId = doctorResult.rows[0].doctor_id; // The real doctor_id
+
+    // Insert new review
     await pool.query(
       `INSERT INTO reviews_table (doctor_id, patient_id, rating, comment)
        VALUES ($1, $2, $3, $4)`,
-      [doctorId, patientId, rating, comment || ""]
+      [actualDoctorId, patientId, rating, comment || ""]
     );
 
-    // 2. Recalculate average rating
+    // Recalculate and update the average rating
     const avgResult = await pool.query(
-      `SELECT AVG(rating) as avg_rating
-       FROM reviews_table
-       WHERE doctor_id = $1`,
-      [doctorId]
+      `SELECT AVG(rating) as avg_rating FROM reviews_table WHERE doctor_id = $1`,
+      [actualDoctorId]
     );
-    const avgRating = avgResult.rows[0].avg_rating || 0;
+    
+    const avgRating = parseFloat(avgResult.rows[0].avg_rating) || 0;
 
-    // 3. Update doctors_table
     await pool.query(
-      `UPDATE doctors_table
-       SET rating = $1
-       WHERE doctor_id = $2`,
-      [avgRating, doctorId]
+      `UPDATE doctors_table SET rating = $1 WHERE doctor_id = $2`,
+      [avgRating, actualDoctorId]
     );
 
     res.status(201).json({ message: "Review posted successfully", newRating: avgRating });
   } catch (error) {
     console.error("Error posting review:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal server error", details: error.message });
   }
 });
+
+
 
 
 
