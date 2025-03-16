@@ -350,15 +350,13 @@ function convertTime12to24(time12h) {
 
 app.post("/api/book-appointment", authenticateToken, async (req, res) => {
   try {
-    // Expecting doctor's user id in the field "doctor" in the request body
     const { doctor, date, time, details } = req.body;
-    const patient_id = req.user.userId; // Extracted from JWT token
+    const patient_id = req.user.userId;
 
     if (!doctor || !date || !time) {
       return res.status(400).json({ error: "Missing required fields: doctor, date, or time." });
     }
 
-    // First, convert doctor's user_id to doctor_id from doctors_table
     const doctorResult = await pool.query(
       "SELECT doctor_id FROM doctors_table WHERE user_id = $1",
       [doctor]
@@ -367,66 +365,63 @@ app.post("/api/book-appointment", authenticateToken, async (req, res) => {
       return res.status(404).json({ error: "Doctor not found" });
     }
     const doctor_id = doctorResult.rows[0].doctor_id;
-
-    // Convert provided time (assumed in 12-hour format) to 24-hour format
     const convertedTime = convertTime12to24(time);
-    console.log("Booking Attempt:", { doctor_id, date, originalTime: time, convertedTime });
 
-    // Attempt to find an available slot for this doctor on the given date and time
-    let slotCheck = await pool.query(
-      `SELECT * FROM schedules_table 
-       WHERE doctor_id = $1 
-         AND available_date = $2 
-         AND start_time = $3 
-         AND slot_status = 'available'`,
-      [doctor_id, date, convertedTime]
-    );
+    // 👉 From here onwards, REPLACE with transactional logic:
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    // If no slot is found, try to populate the schedule for this doctor on the given date
-    if (slotCheck.rowCount === 0) {
-      await populateScheduleForDoctorForDate(doctor_id, date);
-      slotCheck = await pool.query(
-        `SELECT * FROM schedules_table 
+      const slotCheck = await client.query(
+        `SELECT * FROM schedules_table
          WHERE doctor_id = $1 
            AND available_date = $2 
            AND start_time = $3 
-           AND slot_status = 'available'`,
+           AND slot_status = 'available'
+         FOR UPDATE`,
         [doctor_id, date, convertedTime]
       );
+
+      if (slotCheck.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: "Selected time slot is no longer available" });
+      }
+
+      const result = await client.query(
+        `INSERT INTO appointments_table 
+         (doctor_id, patient_id, appointment_date, appointment_time, details)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [doctor_id, patient_id, date, convertedTime, details]
+      );
+
+      await client.query(
+        `UPDATE schedules_table
+         SET slot_status = 'booked'
+         WHERE schedule_id = $1`,
+        [slotCheck.rows[0].schedule_id]
+      );
+
+      await client.query('COMMIT');
+      res.status(201).json({
+        message: "Appointment booked successfully",
+        appointment: result.rows[0],
+      });
+
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error("Booking error:", err);
+      res.status(500).json({ error: "Booking failed. Please try again." });
+    } finally {
+      client.release();
     }
 
-    console.log("Slot Check Rows:", slotCheck.rows);
-
-    if (slotCheck.rowCount === 0) {
-      return res.status(400).json({ error: "Selected time slot is no longer available" });
-    }
-
-    // Create the appointment
-    const result = await pool.query(
-      `INSERT INTO appointments_table 
-       (doctor_id, patient_id, appointment_date, appointment_time, details)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [doctor_id, patient_id, date, convertedTime, details]
-    );
-
-    // Update the schedule slot to "booked"
-    await pool.query(
-      `UPDATE schedules_table 
-       SET slot_status = 'booked'
-       WHERE schedule_id = $1`,
-      [slotCheck.rows[0].schedule_id]
-    );
-
-    res.status(201).json({
-      message: "Appointment booked successfully",
-      appointment: result.rows[0],
-    });
   } catch (err) {
     console.error("Booking error:", err);
     res.status(500).json({ error: "Booking failed. Please try again." });
   }
 });
+
 
 
 app.delete("/api/appointments/:id", authenticateToken, async (req, res) => {
