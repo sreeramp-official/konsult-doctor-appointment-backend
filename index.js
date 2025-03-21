@@ -795,3 +795,76 @@ app.put("/api/patient/profile", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Failed to update patient profile" });
   }
 });
+
+const cron = require("node-cron");
+
+// Schedule a task to run at 6:00 AM every day
+cron.schedule("0 6 * * *", async () => {
+  console.log("Running appointment reminder job at 6:00 AM");
+
+  try {
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = (today.getMonth() + 1).toString().padStart(2, "0");
+    const dd = today.getDate().toString().padStart(2, "0");
+    const todayStr = `${yyyy}-${mm}-${dd}`;
+
+    // Query appointments for today that are still booked and haven't been notified
+    // (Assumes you have a column named "notified" in appointments_table)
+    const appointmentsResult = await pool.query(
+      `SELECT a.appointment_id,
+              a.appointment_date,
+              a.appointment_time,
+              a.details,
+              u.name as patient_name,
+              u.email as patient_email,
+              d.doctor_id,
+              d.specialization,
+              d.clinic_address,
+              u2.name as doctor_name
+       FROM appointments_table a
+       JOIN users_table u ON a.patient_id = u.user_id
+       JOIN doctors_table d ON a.doctor_id = d.doctor_id
+       JOIN users_table u2 ON d.user_id = u2.user_id
+       WHERE a.appointment_date = $1
+         AND a.status = 'booked'
+         AND (a.notified IS NULL OR a.notified = false)`,
+      [todayStr]
+    );
+
+    for (const appointment of appointmentsResult.rows) {
+      // Compose email content
+      const emailContent = `Dear ${appointment.patient_name},
+
+This is a reminder for your appointment scheduled for today at ${appointment.appointment_time}.
+
+Appointment Details:
+
+Doctor: ${appointment.doctor_name} (${appointment.specialization})
+Clinic Address: ${appointment.clinic_address}
+Additional Details: ${appointment.details || "None"}
+If you have any questions or need to reschedule, please contact our support team.
+
+Best regards, 
+The Konsult Team `;
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: appointment.patient_email,
+        subject: "Appointment Reminder for Today",
+        text: emailContent,
+      };
+
+      await transporter.sendMail(mailOptions);
+      console.log(`Sent reminder to ${appointment.patient_email}`);
+
+      // Mark the appointment as notified to avoid duplicate reminders
+      await pool.query(
+        "UPDATE appointments_table SET notified = true WHERE appointment_id = $1",
+        [appointment.appointment_id]
+      );
+    }
+  } catch (error) {
+    console.error("Error in appointment reminder job:", error);
+  }
+});
