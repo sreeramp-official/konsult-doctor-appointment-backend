@@ -38,11 +38,11 @@ const generateOTP = () => crypto.randomInt(100000, 999999);
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   if (!authHeader) return res.status(401).json({ error: "Unauthorized" });
-  
+
   // Extract token from "Bearer <token>"
   const token = authHeader.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Unauthorized" });
-  
+
   jwt.verify(token, SECRET_KEY, (err, user) => {
     if (err) return res.status(403).json({ error: "Invalid token" });
     req.user = user;
@@ -248,7 +248,7 @@ app.post("/api/register", async (req, res) => {
        RETURNING user_id`,
       [name, email, phone_number, hashedPassword, role]
     );
-    res.status(201).json({ 
+    res.status(201).json({
       message: "User registered successfully",
       userId: result.rows[0].user_id
     });
@@ -427,7 +427,7 @@ app.post("/api/book-appointment", authenticateToken, async (req, res) => {
 app.delete("/api/appointments/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Get appointment details first
     const appointment = await pool.query(
       "SELECT * FROM appointments_table WHERE appointment_id = $1",
@@ -663,7 +663,7 @@ app.post("/api/reviews", authenticateToken, async (req, res) => {
       `SELECT AVG(rating) as avg_rating FROM reviews_table WHERE doctor_id = $1`,
       [actualDoctorId]
     );
-    
+
     const avgRating = parseFloat(avgResult.rows[0].avg_rating) || 0;
 
     await pool.query(
@@ -746,10 +746,6 @@ populateSchedulesForNext7Days();
 // Then schedule the function to run once every 24 hours (86400000 ms)
 setInterval(populateSchedulesForNext7Days, 86400000);
 
-
-
-
-
 // Secure route example
 app.get("/api/home", authenticateToken, (req, res) => {
   res.json({ message: `Welcome, user ${req.user.userId}` });
@@ -758,4 +754,44 @@ app.get("/api/home", authenticateToken, (req, res) => {
 // Start the server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+});
+
+// Patient Profile Endpoints
+
+// GET patient profile (Protected)
+app.get("/api/patient/profile", authenticateToken, async (req, res) => {
+  if (req.user.role !== "patient") {
+    return res.status(403).json({ error: "Access denied" });
+  }
+  try {
+    const result = await pool.query(
+      "SELECT user_id, name, email, phone_number FROM users_table WHERE user_id = $1",
+      [req.user.userId]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error fetching patient profile:", error);
+    res.status(500).json({ error: "Failed to fetch patient profile" });
+  }
+});
+
+// PUT update patient profile (Protected)
+app.put("/api/patient/profile", authenticateToken, async (req, res) => {
+  if (req.user.role !== "patient") {
+    return res.status(403).json({ error: "Access denied" });
+  }
+  const { name, email, phone_number } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE users_table
+       SET name = $1, email = $2, phone_number = $3
+       WHERE user_id = $4
+       RETURNING user_id, name, email, phone_number`,
+      [name, email, phone_number, req.user.userId]
+    );
+    res.json({ message: "Patient profile updated successfully", profile: result.rows[0] });
+  } catch (error) {
+    console.error("Error updating patient profile:", error);
+    res.status(500).json({ error: "Failed to update patient profile" });
+  }
 });
