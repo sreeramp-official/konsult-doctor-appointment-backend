@@ -868,3 +868,76 @@ The Konsult Team `;
     console.error("Error in appointment reminder job:", error);
   }
 });
+
+
+// GET doctor profile (Protected)
+app.get("/api/doctor/profile", authenticateToken, async (req, res) => {
+  if (req.user.role !== "doctor") {
+    return res.status(403).json({ error: "Access denied" });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT 
+          u.user_id, 
+          u.name, 
+          u.email, 
+          u.phone_number,
+          d.doctor_id, 
+          d.specialization, 
+          d.contact_number AS doctor_contact, 
+          d.clinic_address, 
+          d.rating
+       FROM users_table u
+       JOIN doctors_table d ON u.user_id = d.user_id
+       WHERE u.user_id = $1`,
+      [req.user.userId]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error fetching doctor profile:", error);
+    res.status(500).json({ error: "Failed to fetch doctor profile" });
+  }
+});
+
+// PUT update doctor profile (Protected)
+app.put("/api/doctor/profile", authenticateToken, async (req, res) => {
+  if (req.user.role !== "doctor") {
+    return res.status(403).json({ error: "Access denied" });
+  }
+  const { name, email, phone_number, specialization, contactNumber, clinicAddress } = req.body;
+  try {
+    await pool.query('BEGIN');
+
+    // Update the basic user info in users_table
+    const userResult = await pool.query(
+      `UPDATE users_table 
+       SET name = $1, email = $2, phone_number = $3
+       WHERE user_id = $4
+       RETURNING user_id, name, email, phone_number`,
+      [name, email, phone_number, req.user.userId]
+    );
+
+    // Update doctor-specific info in doctors_table
+    const doctorResult = await pool.query(
+      `UPDATE doctors_table 
+       SET specialization = $1, contact_number = $2, clinic_address = $3
+       WHERE user_id = $4
+       RETURNING doctor_id, specialization, contact_number, clinic_address`,
+      [specialization, contactNumber, clinicAddress, req.user.userId]
+    );
+
+    await pool.query('COMMIT');
+
+    // Merge the updated info and send as response
+    const updatedProfile = {
+      ...userResult.rows[0],
+      ...doctorResult.rows[0]
+    };
+
+    res.json({ message: "Doctor profile updated successfully", profile: updatedProfile });
+  } catch (error) {
+    await pool.query('ROLLBACK');
+    console.error("Error updating doctor profile:", error);
+    res.status(500).json({ error: "Failed to update doctor profile" });
+  }
+});
