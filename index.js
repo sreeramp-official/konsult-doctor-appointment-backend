@@ -367,7 +367,6 @@ app.post("/api/book-appointment", authenticateToken, async (req, res) => {
     const doctor_id = doctorResult.rows[0].doctor_id;
     const convertedTime = convertTime12to24(time);
 
-    // 👉 From here onwards, REPLACE with transactional logic:
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -384,6 +383,7 @@ app.post("/api/book-appointment", authenticateToken, async (req, res) => {
 
       if (slotCheck.rowCount === 0) {
         await client.query('ROLLBACK');
+        client.release();
         return res.status(400).json({ error: "Selected time slot is no longer available" });
       }
 
@@ -403,19 +403,31 @@ app.post("/api/book-appointment", authenticateToken, async (req, res) => {
       );
 
       await client.query('COMMIT');
+      client.release();
+
+      // Send email notification to doctor
+      const subject = "New Appointment Scheduled";
+      const emailText = `Dear Doctor,
+
+A new appointment has been scheduled on ${date} at ${convertedTime}.
+Details: ${details || "No additional details provided."}
+
+Please review your schedule for further information.
+
+Best regards,
+Konsult Team`;
+      await sendEmailToDoctor(doctor_id, subject, emailText);
+
       res.status(201).json({
         message: "Appointment booked successfully",
         appointment: result.rows[0],
       });
-
     } catch (err) {
       await client.query('ROLLBACK');
+      client.release();
       console.error("Booking error:", err);
       res.status(500).json({ error: "Booking failed. Please try again." });
-    } finally {
-      client.release();
     }
-
   } catch (err) {
     console.error("Booking error:", err);
     res.status(500).json({ error: "Booking failed. Please try again." });
@@ -433,6 +445,9 @@ app.delete("/api/appointments/:id", authenticateToken, async (req, res) => {
       "SELECT * FROM appointments_table WHERE appointment_id = $1",
       [id]
     );
+    if (appointment.rowCount === 0) {
+      return res.status(404).json({ error: "Appointment not found" });
+    }
 
     // Free up the time slot
     await pool.query(
@@ -454,6 +469,16 @@ app.delete("/api/appointments/:id", authenticateToken, async (req, res) => {
       [id]
     );
 
+    // Send email notification to the doctor
+    const subject = "Appointment Canceled";
+    const emailText = `Dear Doctor,
+
+An appointment scheduled for ${appointment.rows[0].appointment_date} at ${appointment.rows[0].appointment_time} has been canceled by the patient.
+
+Best regards,
+Konsult Team`;
+    await sendEmailToDoctor(appointment.rows[0].doctor_id, subject, emailText);
+
     res.status(200).json({ message: "Appointment canceled successfully" });
   } catch (error) {
     console.error("Error canceling appointment:", error);
@@ -464,7 +489,7 @@ app.delete("/api/appointments/:id", authenticateToken, async (req, res) => {
 app.put("/api/appointments/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { newDate, newTime } = req.body; // newTime must be in "HH:MM:SS" (24-hour) format
+    const { newDate, newTime } = req.body; // newTime in "HH:MM:SS" 24-hour format
 
     // Retrieve the old appointment.
     const oldAppointmentResult = await pool.query(
@@ -518,6 +543,16 @@ app.put("/api/appointments/:id", authenticateToken, async (req, res) => {
        WHERE schedule_id = $1`,
       [newSlotResult.rows[0].schedule_id]
     );
+
+    // Send email notification to the doctor about the reschedule
+    const subject = "Appointment Rescheduled";
+    const emailText = `Dear Doctor,
+
+An appointment originally scheduled for ${oldAppointment.appointment_date} at ${oldAppointment.appointment_time} has been rescheduled to ${newDate} at ${newTime}.
+
+Best regards,
+Konsult Team`;
+    await sendEmailToDoctor(doctorId, subject, emailText);
 
     res.json(updatedAppointmentResult.rows[0]);
   } catch (error) {
@@ -868,6 +903,36 @@ The Konsult Team `;
     console.error("Error in appointment reminder job:", error);
   }
 });
+
+// Helper: Send an email notification to a doctor
+const sendEmailToDoctor = async (doctorId, subject, text) => {
+  try {
+    // Retrieve the doctor's email from the users_table via doctors_table
+    const doctorEmailRes = await pool.query(
+      `SELECT u.email 
+       FROM users_table u
+       JOIN doctors_table d ON u.user_id = d.user_id
+       WHERE d.doctor_id = $1`,
+      [doctorId]
+    );
+    if (doctorEmailRes.rows.length === 0) {
+      console.error("Doctor email not found for doctor_id:", doctorId);
+      return;
+    }
+    const doctorEmail = doctorEmailRes.rows[0].email;
+    // Send the email
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: doctorEmail,
+      subject,
+      text,
+    });
+    console.log(`Notification email sent to doctor (${doctorEmail}) with subject: ${subject}`);
+  } catch (error) {
+    console.error("Error sending email to doctor:", error);
+  }
+};
+
 
 
 // GET doctor profile (Protected)
