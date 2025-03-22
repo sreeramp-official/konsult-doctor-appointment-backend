@@ -630,18 +630,6 @@ function convertTime12to24(time12h) {
 
 
 
-// Helper function: Convert 12-hour time to 24-hour time.
-function convertTime12to24(time12h) {
-  const [time, modifier] = time12h.split(" ");
-  let [hours, minutes] = time.split(":");
-  if (modifier === "PM" && hours !== "12") hours = parseInt(hours, 10) + 12;
-  if (modifier === "AM" && hours === "12") hours = "00";
-  return `${hours.toString().padStart(2, "0")}:${minutes}:00`;
-}
-
-
-
-
 
 // Add this backend endpoint
 app.get("/api/doctor/details", authenticateToken, async (req, res) => {
