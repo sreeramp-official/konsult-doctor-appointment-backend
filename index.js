@@ -13,12 +13,26 @@ const PORT = process.env.PORT || 5000;
 const SECRET_KEY = process.env.SECRET_KEY || "secret123";
 
 // Middleware
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://konsult-68bf.onrender.com"
+];
+
 app.use(
   cors({
-    origin: "http://localhost:3000", // Allow frontend to access the backend
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error(`CORS policy does not allow access from origin: ${origin}`));
+      }
+    },
     credentials: true,
   })
 );
+
 app.use(helmet());
 app.use(express.json());
 
