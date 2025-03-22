@@ -364,13 +364,16 @@ function convertTime12to24(time12h) {
 
 app.post("/api/book-appointment", authenticateToken, async (req, res) => {
   try {
+    // Destructure required fields from the request body
     const { doctor, date, time, details } = req.body;
     const patient_id = req.user.userId;
 
+    // Validate required fields
     if (!doctor || !date || !time) {
       return res.status(400).json({ error: "Missing required fields: doctor, date, or time." });
     }
 
+    // Query to get doctor_id from doctors_table using the doctor (user_id)
     const doctorResult = await pool.query(
       "SELECT doctor_id FROM doctors_table WHERE user_id = $1",
       [doctor]
@@ -379,12 +382,17 @@ app.post("/api/book-appointment", authenticateToken, async (req, res) => {
       return res.status(404).json({ error: "Doctor not found" });
     }
     const doctor_id = doctorResult.rows[0].doctor_id;
-    const convertedTime = convertTime12to24(time);
 
+    // Convert time from 12-hour to 24-hour format (ensure this function is correctly implemented)
+    const convertedTime = convertTime12to24(time);
+    console.log("Converted time:", convertedTime);
+
+    // Connect to the database and begin a transaction
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
+      // Check if the desired slot is available
       const slotCheck = await client.query(
         `SELECT * FROM schedules_table
          WHERE doctor_id = $1 
@@ -395,12 +403,14 @@ app.post("/api/book-appointment", authenticateToken, async (req, res) => {
         [doctor_id, date, convertedTime]
       );
 
+      // If no matching slot is found, rollback and return error
       if (slotCheck.rowCount === 0) {
         await client.query('ROLLBACK');
         client.release();
         return res.status(400).json({ error: "Selected time slot is no longer available" });
       }
 
+      // Insert the appointment
       const result = await client.query(
         `INSERT INTO appointments_table 
          (doctor_id, patient_id, appointment_date, appointment_time, details)
@@ -409,6 +419,7 @@ app.post("/api/book-appointment", authenticateToken, async (req, res) => {
         [doctor_id, patient_id, date, convertedTime, details]
       );
 
+      // Mark the slot as booked in the schedules table
       await client.query(
         `UPDATE schedules_table
          SET slot_status = 'booked'
@@ -419,7 +430,7 @@ app.post("/api/book-appointment", authenticateToken, async (req, res) => {
       await client.query('COMMIT');
       client.release();
 
-      // Send email notification to doctor
+      // Prepare email notification details for the doctor
       const subject = "New Appointment Scheduled";
       const emailText = `Dear Doctor,
 
@@ -430,8 +441,11 @@ Please review your schedule for further information.
 
 Best regards,
 Konsult Team`;
+
+      // Send email notification to the doctor (ensure sendEmailToDoctor is implemented)
       await sendEmailToDoctor(doctor_id, subject, emailText);
 
+      // Respond with success
       res.status(201).json({
         message: "Appointment booked successfully",
         appointment: result.rows[0],
@@ -439,7 +453,7 @@ Konsult Team`;
     } catch (err) {
       await client.query('ROLLBACK');
       client.release();
-      console.error("Booking error:", err);
+      console.error("Booking error during transaction:", err);
       res.status(500).json({ error: "Booking failed. Please try again." });
     }
   } catch (err) {
@@ -447,6 +461,7 @@ Konsult Team`;
     res.status(500).json({ error: "Booking failed. Please try again." });
   }
 });
+
 
 
 
@@ -607,10 +622,12 @@ app.get("/api/available-slotd", async (req, res) => {
 function convertTime12to24(time12h) {
   const [time, modifier] = time12h.split(" ");
   let [hours, minutes] = time.split(":");
-  if (modifier === "PM" && hours !== "12") hours = parseInt(hours, 10) + 12;
-  if (modifier === "AM" && hours === "12") hours = "00";
+  const mod = modifier.toUpperCase(); // Ensure the modifier is in uppercase
+  if (mod === "PM" && hours !== "12") hours = parseInt(hours, 10) + 12;
+  if (mod === "AM" && hours === "12") hours = "00";
   return `${hours.toString().padStart(2, "0")}:${minutes}:00`;
 }
+
 
 
 // Helper function: Convert 12-hour time to 24-hour time.
