@@ -9,7 +9,7 @@ const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 const SECRET_KEY = process.env.SECRET_KEY || "secret123";
 
 // Middleware
