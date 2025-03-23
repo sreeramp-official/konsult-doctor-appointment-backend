@@ -1134,3 +1134,48 @@ app.put("/api/doctor/appointments/complete/:appointmentId", authenticateToken, a
     res.status(500).json({ error: "Failed to mark appointment as completed" });
   }
 });
+
+// For Doctors: Get appointment history (all appointments, sorted with most recent first)
+app.get("/api/doctor/appointments/history", authenticateToken, async (req, res) => {
+  try {
+    // For a doctor, we assume req.user.userId is the doctor's user id.
+    const result = await pool.query(
+      `SELECT a.appointment_id, d.doctor_id, 
+              u1.name AS doctor_name, u2.name AS patient_name,
+              d.specialization, a.appointment_date, a.appointment_time, a.status, a.details, u2.phone_number AS patient_phone
+       FROM appointments_table a
+       JOIN doctors_table d ON a.doctor_id = d.doctor_id
+       JOIN users_table u1 ON d.user_id = u1.user_id
+       JOIN users_table u2 ON a.patient_id = u2.user_id
+       WHERE d.user_id = $1
+       ORDER BY a.appointment_date DESC, a.appointment_time DESC;`,
+      [req.user.userId]
+    );
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Error fetching doctor appointment history:", error);
+    res.status(500).json({ error: "Error fetching appointment history" });
+  }
+});
+
+// For Patients: Get appointment history (all appointments, sorted with most recent first)
+app.get("/api/patient/appointments/history", authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT a.appointment_id, 
+              d.doctor_id, u1.name AS doctor_name, u2.name AS patient_name,
+              d.specialization, a.appointment_date, a.appointment_time, a.status, a.details
+       FROM appointments_table a
+       JOIN doctors_table d ON a.doctor_id = d.doctor_id
+       JOIN users_table u1 ON d.user_id = u1.user_id
+       JOIN users_table u2 ON a.patient_id = u2.user_id
+       WHERE a.patient_id = $1
+       ORDER BY a.appointment_date DESC, a.appointment_time DESC;`,
+      [req.user.userId]
+    );
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("Error fetching patient appointment history:", error);
+    res.status(500).json({ error: "Error fetching appointment history" });
+  }
+});
