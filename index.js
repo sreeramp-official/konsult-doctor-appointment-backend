@@ -9,7 +9,7 @@ const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = 5000;
 const SECRET_KEY = process.env.SECRET_KEY || "secret123";
 
 // Middleware
@@ -1067,3 +1067,16 @@ app.delete("/api/doctor/profile", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Failed to delete doctor account." });
   }
 });
+
+// Endpoint to fetch distinct doctor specialties in alphabetical order
+app.get("/api/doctorview/specialties", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT DISTINCT specialization FROM doctors_table ORDER BY specialization ASC");
+    const specialties = result.rows.map(row => row.specialization);
+    res.status(200).json(specialties);
+  } catch (error) {
+    console.error("Error fetching specialties:", error);
+    res.status(500).json({ error: "Error fetching specialties" });
+  }
+});
+
