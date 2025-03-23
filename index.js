@@ -144,6 +144,7 @@ JOIN users_table u1 ON d.user_id = u1.user_id
 JOIN users_table u2 ON a.patient_id = u2.user_id
 WHERE a.patient_id = $1
   AND a.appointment_date >= CURRENT_DATE
+  AND a.status != 'completed'
 ORDER BY a.appointment_date, a.appointment_time;
 `,
       [req.user.userId]
