@@ -9,7 +9,7 @@ const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 const SECRET_KEY = process.env.SECRET_KEY || "secret123";
 
 // Middleware
@@ -1068,10 +1068,19 @@ app.delete("/api/doctor/profile", authenticateToken, async (req, res) => {
   }
 });
 
-// Endpoint to fetch distinct doctor specialties in alphabetical order
+// Endpoint to fetch the top 7 doctor specialties (with the highest number of doctors)
 app.get("/api/doctorview/specialties", async (req, res) => {
   try {
-    const result = await pool.query("SELECT DISTINCT specialization FROM doctors_table ORDER BY specialization ASC");
+    const result = await pool.query(
+      `SELECT specialization FROM (
+         SELECT specialization, COUNT(*) AS doctor_count 
+         FROM doctors_table 
+         GROUP BY specialization 
+         ORDER BY doctor_count DESC 
+         LIMIT 7
+       ) AS top_specialties
+       ORDER BY specialization ASC`
+    );
     const specialties = result.rows.map(row => row.specialization);
     res.status(200).json(specialties);
   } catch (error) {
@@ -1079,4 +1088,3 @@ app.get("/api/doctorview/specialties", async (req, res) => {
     res.status(500).json({ error: "Error fetching specialties" });
   }
 });
-
