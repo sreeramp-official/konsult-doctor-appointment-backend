@@ -1046,3 +1046,24 @@ app.delete("/api/patient/profile", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Failed to delete account." });
   }
 });
+
+// DELETE doctor account endpoint
+app.delete("/api/doctor/profile", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    // Delete the user only if the role is 'doctor'
+    const deleteResult = await pool.query(
+      "DELETE FROM users_table WHERE user_id = $1 AND role = 'doctor'",
+      [userId]
+    );
+
+    if (deleteResult.rowCount === 0) {
+      return res.status(404).json({ error: "Doctor account not found" });
+    }
+
+    res.status(200).json({ message: "Doctor account deleted successfully." });
+  } catch (error) {
+    console.error("Error deleting doctor account:", error);
+    res.status(500).json({ error: "Failed to delete doctor account." });
+  }
+});
