@@ -1093,7 +1093,6 @@ app.get("/api/doctorview/specialties", async (req, res) => {
 app.put("/api/doctor/appointments/complete/:appointmentId", authenticateToken, async (req, res) => {
   try {
     const { appointmentId } = req.params;
-
     // Get the doctor's id from the logged-in user
     const doctorResult = await pool.query(
       "SELECT doctor_id FROM doctors_table WHERE user_id = $1",
@@ -1122,7 +1121,7 @@ app.put("/api/doctor/appointments/complete/:appointmentId", authenticateToken, a
       appointment: updateResult.rows[0]
     });
   } catch (error) {
-    console.error("Error updating appointment:", error);
+    console.error("Error marking appointment as completed:", error);
     res.status(500).json({ error: "Failed to mark appointment as completed" });
   }
 });
