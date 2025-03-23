@@ -140,7 +140,6 @@ app.get("/api/appointments", authenticateToken, async (req, res) => {
          SELECT doctor_id FROM doctors_table WHERE user_id = $1
        )
        AND a.appointment_date >= CURRENT_DATE
-       AND a.status != 'completed'
        ORDER BY a.appointment_date, a.appointment_time;`,
       [req.user.userId]
     );
