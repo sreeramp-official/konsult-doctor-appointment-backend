@@ -1088,3 +1088,41 @@ app.get("/api/doctorview/specialties", async (req, res) => {
     res.status(500).json({ error: "Error fetching specialties" });
   }
 });
+
+// Endpoint to mark an appointment as completed (doctor only)
+app.put("/api/doctor/appointments/complete/:appointmentId", authenticateToken, async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+
+    // Get the doctor's id from the logged-in user
+    const doctorResult = await pool.query(
+      "SELECT doctor_id FROM doctors_table WHERE user_id = $1",
+      [req.user.userId]
+    );
+    if (doctorResult.rowCount === 0) {
+      return res.status(404).json({ error: "Doctor not found" });
+    }
+    const doctor_id = doctorResult.rows[0].doctor_id;
+
+    // Update the appointment status to 'completed' if it belongs to this doctor
+    const updateResult = await pool.query(
+      `UPDATE appointments_table 
+       SET status = 'completed'
+       WHERE appointment_id = $1 AND doctor_id = $2
+       RETURNING *`,
+      [appointmentId, doctor_id]
+    );
+
+    if (updateResult.rowCount === 0) {
+      return res.status(404).json({ error: "Appointment not found or does not belong to this doctor" });
+    }
+
+    res.status(200).json({
+      message: "Appointment marked as completed",
+      appointment: updateResult.rows[0]
+    });
+  } catch (error) {
+    console.error("Error updating appointment:", error);
+    res.status(500).json({ error: "Failed to mark appointment as completed" });
+  }
+});
