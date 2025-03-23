@@ -128,19 +128,24 @@ app.get("/api/doctorview", async (req, res) => {
 app.get("/api/appointments", authenticateToken, async (req, res) => {
   try {
     const appointments = await pool.query(
-      `SELECT a.appointment_id, d.doctor_id, 
-              u1.name AS doctor_name, u2.name AS patient_name,
-              d.specialization AS specialization,
-              a.appointment_date, a.appointment_time, a.status, a.details, u2.phone_number AS patient_phone
-       FROM appointments_table a
-       JOIN doctors_table d ON a.doctor_id = d.doctor_id
-       JOIN users_table u1 ON d.user_id = u1.user_id
-       JOIN users_table u2 ON a.patient_id = u2.user_id
-       WHERE a.doctor_id = (
-         SELECT doctor_id FROM doctors_table WHERE user_id = $1
-       )
-       AND a.appointment_date >= CURRENT_DATE
-       ORDER BY a.appointment_date, a.appointment_time;`,
+      `SELECT a.appointment_id, 
+       d.doctor_id, 
+       u1.name AS doctor_name, 
+       u2.name AS patient_name,
+       d.specialization AS specialization,
+       a.appointment_date, 
+       a.appointment_time, 
+       a.status, 
+       a.details, 
+       u1.phone_number AS doctor_phone
+FROM appointments_table a
+JOIN doctors_table d ON a.doctor_id = d.doctor_id
+JOIN users_table u1 ON d.user_id = u1.user_id
+JOIN users_table u2 ON a.patient_id = u2.user_id
+WHERE a.patient_id = $1
+  AND a.appointment_date >= CURRENT_DATE
+ORDER BY a.appointment_date, a.appointment_time;
+`,
       [req.user.userId]
     );
     res.json(appointments.rows);
