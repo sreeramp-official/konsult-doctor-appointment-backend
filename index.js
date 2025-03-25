@@ -7,6 +7,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
+const cron = require("node-cron");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -280,6 +281,67 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
+// Populate schedules for next 7 days for every doctor
+async function populateSchedulesForNext7Days() {
+  try {
+    const timeSlots = [
+      "09:00 AM", "10:00 AM", "11:00 AM", "12:00 PM",
+      "02:00 PM", "03:00 PM", "04:00 PM", "05:00 PM",
+    ];
+
+    // Helper function to add one hour to a given time string (in HH:MM:SS)
+    const addOneHour = (timeStr) => {
+      let [hours, minutes, seconds] = timeStr.split(":").map(Number);
+      hours = (hours + 1) % 24;
+      return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+    };
+
+    // Query all doctors from doctors_table
+    const doctorsResult = await pool.query("SELECT doctor_id FROM doctors_table");
+    const doctors = doctorsResult.rows;
+
+    for (const doctor of doctors) {
+      const doctorId = doctor.doctor_id;
+      // For each of the next 7 days (including today)
+      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+        const dateObj = new Date();
+        dateObj.setDate(dateObj.getDate() + dayOffset);
+        const year = dateObj.getFullYear();
+        const month = (dateObj.getMonth() + 1).toString().padStart(2, "0");
+        const day = dateObj.getDate().toString().padStart(2, "0");
+        const dateStr = `${year}-${month}-${day}`;
+        // For each defined time slot
+        for (const slot of timeSlots) {
+          const startTime = convertTime12to24(slot); // e.g., "09:00 AM" -> "09:00:00"
+          const endTime = addOneHour(startTime);      // e.g., "09:00:00" -> "10:00:00"
+          // Check if a schedule row already exists for this doctor, date, and start time
+          const scheduleCheck = await pool.query(
+            `SELECT * FROM schedules_table 
+             WHERE doctor_id = $1 AND available_date = $2 AND start_time = $3`,
+            [doctorId, dateStr, startTime]
+          );
+          // If no row exists, insert a new schedule row with status "available"
+          if (scheduleCheck.rowCount === 0) {
+            await pool.query(
+              `INSERT INTO schedules_table (doctor_id, available_date, start_time, end_time, slot_status)
+               VALUES ($1, $2, $3, $4, 'available')`,
+              [doctorId, dateStr, startTime, endTime]
+            );
+            console.log(`Inserted schedule for doctor ${doctorId} on ${dateStr} at ${startTime}`);
+          }
+        }
+      }
+    }
+    console.log("Schedules populated for next 7 days.");
+  } catch (error) {
+    console.error("Error populating schedules:", error);
+  }
+}
+
+// Then schedule the function to run once every 24 hours (86400000 ms)
+setInterval(populateSchedulesForNext7Days, 86400000);
+
+
 app.post("/api/register/doctor", async (req, res) => {
   const { userId, specialization, contactNumber, clinicAddress } = req.body;
   try {
@@ -288,6 +350,7 @@ app.post("/api/register/doctor", async (req, res) => {
       [userId, specialization, contactNumber, clinicAddress]
     );
     res.status(201).json({ message: "Doctor registered successfully" });
+    populateSchedulesForNext7Days();
   } catch (err) {
     console.error("Doctor registration error:", err);
     res.status(500).json({ error: "Error registering doctor" });
@@ -740,74 +803,6 @@ app.post("/api/reviews", authenticateToken, async (req, res) => {
   }
 });
 
-
-
-
-
-
-// Populate schedules for next 7 days for every doctor
-async function populateSchedulesForNext7Days() {
-  try {
-    const timeSlots = [
-      "09:00 AM", "10:00 AM", "11:00 AM", "12:00 PM",
-      "02:00 PM", "03:00 PM", "04:00 PM", "05:00 PM",
-    ];
-
-    // Helper function to add one hour to a given time string (in HH:MM:SS)
-    const addOneHour = (timeStr) => {
-      let [hours, minutes, seconds] = timeStr.split(":").map(Number);
-      hours = (hours + 1) % 24;
-      return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-    };
-
-    // Query all doctors from doctors_table
-    const doctorsResult = await pool.query("SELECT doctor_id FROM doctors_table");
-    const doctors = doctorsResult.rows;
-
-    for (const doctor of doctors) {
-      const doctorId = doctor.doctor_id;
-      // For each of the next 7 days (including today)
-      for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
-        const dateObj = new Date();
-        dateObj.setDate(dateObj.getDate() + dayOffset);
-        const year = dateObj.getFullYear();
-        const month = (dateObj.getMonth() + 1).toString().padStart(2, "0");
-        const day = dateObj.getDate().toString().padStart(2, "0");
-        const dateStr = `${year}-${month}-${day}`;
-        // For each defined time slot
-        for (const slot of timeSlots) {
-          const startTime = convertTime12to24(slot); // e.g., "09:00 AM" -> "09:00:00"
-          const endTime = addOneHour(startTime);      // e.g., "09:00:00" -> "10:00:00"
-          // Check if a schedule row already exists for this doctor, date, and start time
-          const scheduleCheck = await pool.query(
-            `SELECT * FROM schedules_table 
-             WHERE doctor_id = $1 AND available_date = $2 AND start_time = $3`,
-            [doctorId, dateStr, startTime]
-          );
-          // If no row exists, insert a new schedule row with status "available"
-          if (scheduleCheck.rowCount === 0) {
-            await pool.query(
-              `INSERT INTO schedules_table (doctor_id, available_date, start_time, end_time, slot_status)
-               VALUES ($1, $2, $3, $4, 'available')`,
-              [doctorId, dateStr, startTime, endTime]
-            );
-            console.log(`Inserted schedule for doctor ${doctorId} on ${dateStr} at ${startTime}`);
-          }
-        }
-      }
-    }
-    console.log("Schedules populated for next 7 days.");
-  } catch (error) {
-    console.error("Error populating schedules:", error);
-  }
-}
-
-// Call once at server startup
-populateSchedulesForNext7Days();
-
-// Then schedule the function to run once every 24 hours (86400000 ms)
-setInterval(populateSchedulesForNext7Days, 86400000);
-
 // Secure route example
 app.get("/api/home", authenticateToken, (req, res) => {
   res.json({ message: `Welcome, user ${req.user.userId}` });
@@ -857,8 +852,6 @@ app.put("/api/patient/profile", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Failed to update patient profile" });
   }
 });
-
-const cron = require("node-cron");
 
 // Schedule a task to run at 6:00 AM every day
 cron.schedule("0 6 * * *", async () => {
