@@ -530,11 +530,19 @@ Konsult Team`;
       await client.query('ROLLBACK');
       client.release();
       console.error("Booking error during transaction:", err);
-      res.status(500).json({ error: "Booking failed. Please try again." });
+      res.status(500).json({ error: "Booking failed. Please try again.", err });
+      console.log("Booking request received:", { doctor, date, time, patient_id });
+      console.log("Converted time:", convertedTime);
+      console.log("Checking doctor ID for user_id:", doctor);
+
     }
   } catch (err) {
     console.error("Booking error:", err);
-    res.status(500).json({ error: "Booking failed. Please try again." });
+    res.status(500).json({ error: "Booking failed. Please try again.", err });
+    console.log("Booking request received:", { doctor, date, time, patient_id });
+    console.log("Converted time:", convertedTime);
+    console.log("Checking doctor ID for user_id:", doctor);
+
   }
 });
 
