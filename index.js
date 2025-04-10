@@ -293,7 +293,9 @@ async function populateSchedulesForNext7Days() {
     const addOneHour = (timeStr) => {
       let [hours, minutes, seconds] = timeStr.split(":").map(Number);
       hours = (hours + 1) % 24;
-      return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+      return `${hours.toString().padStart(2, "0")}:${minutes
+        .toString()
+        .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
     };
 
     // Query all doctors from doctors_table
@@ -338,10 +340,12 @@ async function populateSchedulesForNext7Days() {
   }
 }
 
-// Then schedule the function to run once every 24 hours (86400000 ms)
+populateSchedulesForNext7Days();
+
+// Schedule function to run every 24 hours (86400000 ms)
 setInterval(populateSchedulesForNext7Days, 86400000);
 
-
+// Register Doctor Endpoint with schedule population call
 app.post("/api/register/doctor", async (req, res) => {
   const { userId, specialization, contactNumber, clinicAddress } = req.body;
   try {
@@ -350,6 +354,7 @@ app.post("/api/register/doctor", async (req, res) => {
       [userId, specialization, contactNumber, clinicAddress]
     );
     res.status(201).json({ message: "Doctor registered successfully" });
+    // Immediately populate schedules for the new doctor
     populateSchedulesForNext7Days();
   } catch (err) {
     console.error("Doctor registration error:", err);
