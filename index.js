@@ -340,6 +340,8 @@ async function populateSchedulesForNext7Days() {
   }
 }
 
+populateSchedulesForNext7Days();
+
 // Schedule function to run every 24 hours (86400000 ms)
 setInterval(populateSchedulesForNext7Days, 86400000);
 
